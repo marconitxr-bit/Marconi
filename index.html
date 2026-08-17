@@ -328,6 +328,223 @@ function removerOperacao(id) {
 
 // Ao abrir a página, carrega os dados diretamente da planilha online
 carregarDaNuvem();
+HTML
+<script>
+// Cole a sua URL do Google Apps Script entre as aspas abaixo:
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx6xApFIQzyh7zOTgKNnB80q2Yre6USfOu7uotUKLsR7B93bxtKU-kFBzzkA_NC0RQvOA/exec";
+
+let capitalInicial = 1000.00;
+let operacoes = [];
+let chart;
+
+function atualizarStatus(texto, classe) {
+  const el = document.getElementById('statusNuvem');
+  if (el) {
+    el.innerText = texto;
+    el.className = `sync-status ${classe}`;
+  }
+}
+
+async function carregarDaNuvem() {
+  if (!SCRIPT_URL || SCRIPT_URL.includes("SUA_URL")) {
+    atualizarStatus("⚠️ Insira a URL do Google Apps Script no código", "error");
+    return;
+  }
+
+  atualizarStatus("🔄 Buscando dados na nuvem...", "loading");
+
+  try {
+    const res = await fetch(SCRIPT_URL);
+    const data = await res.json();
+    
+    capitalInicial = parseFloat(data.capitalInicial) || 1000.00;
+    operacoes = data.operacoes || [];
+
+    const inputCap = document.getElementById('inputCapital');
+    if (inputCap) inputCap.value = capitalInicial.toFixed(2);
+    
+    render();
+    atualizarStatus("☁️ Sincronizado com o Google Sheets", "ok");
+  } catch (err) {
+    console.error("Erro ao carregar:", err);
+    atualizarStatus("❌ Erro ao conectar com a nuvem.", "error");
+  }
+}
+
+async function salvarNaNuvem() {
+  if (!SCRIPT_URL || SCRIPT_URL.includes("SUA_URL")) return;
+
+  atualizarStatus("⏳ Salvando na nuvem...", "loading");
+
+  try {
+    const payload = JSON.stringify({
+      capitalInicial: capitalInicial,
+      operacoes: operacoes
+    });
+
+    await fetch(SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'dados=' + encodeURIComponent(payload)
+    });
+    
+    atualizarStatus("☁️ Alterações salvas na nuvem com sucesso!", "ok");
+  } catch (err) {
+    console.error("Erro ao salvar:", err);
+    atualizarStatus("❌ Erro ao salvar na nuvem.", "error");
+  }
+}
+
+const elCapital = document.getElementById('inputCapital');
+if (elCapital) {
+  elCapital.addEventListener('change', function(e) {
+    const novoValor = parseFloat(e.target.value);
+    if (!isNaN(novoValor) && novoValor >= 0) {
+      capitalInicial = novoValor;
+      salvarNaNuvem();
+      render();
+    }
+  });
+}
+
+function calcularMetricas() {
+  let saldo = capitalInicial;
+  let ganhos = 0;
+  let totalLucro = 0;
+
+  const historico = operacoes.map(op => {
+    if (op.tipo === 'Ganho') {
+      saldo += op.valor;
+      totalLucro += op.valor;
+      ganhos++;
+    } else {
+      saldo -= op.valor;
+      totalLucro -= op.valor;
+    }
+    return { ...op, saldoAcumulado: saldo };
+  });
+
+  const winrate = operacoes.length > 0 ? ((ganhos / operacoes.length) * 100).toFixed(1) : 0;
+
+  return { saldo, totalLucro, winrate, historico };
+}
+
+function render() {
+  const { saldo, totalLucro, winrate, historico } = calcularMetricas();
+
+  const elSaldo = document.getElementById('cardSaldo');
+  const elPl = document.getElementById('cardPl');
+  const elWinrate = document.getElementById('cardWinrate');
+  const elTotal = document.getElementById('cardTotal');
+
+  if (elSaldo) elSaldo.innerText = `R$ ${saldo.toFixed(2)}`;
+  if (elPl) {
+    elPl.innerText = `R$ ${totalLucro.toFixed(2)}`;
+    elPl.style.color = totalLucro >= 0 ? '#16a34a' : '#dc2626';
+  }
+  if (elWinrate) elWinrate.innerText = `${winrate}%`;
+  if (elTotal) elTotal.innerText = operacoes.length;
+
+  const tbody = document.getElementById('tabelaCorpo');
+  if (tbody) {
+    tbody.innerHTML = '';
+    historico.slice().reverse().forEach(op => {
+      const tr = document.createElement('tr');
+      const entradaTxt = op.valorEntrada ? `R$ ${op.valorEntrada.toFixed(2)}` : '-';
+      const tipoTexto = op.tipo === 'Ganho' ? 'Win' : 'Loss';
+      
+      const resultadoFormatado = op.tipo === 'Ganho' 
+        ? `R$ ${op.valor.toFixed(2)}` 
+        : `-R$ ${op.valor.toFixed(2)}`;
+
+      tr.innerHTML = `
+        <td>${op.data}</td>
+        <td><strong>${op.ativo}</strong></td>
+        <td class="${op.tipo === 'Ganho' ? 'tag-ganho' : 'tag-perda'}">${tipoTexto}</td>
+        <td>${entradaTxt}</td>
+        <td class="${op.tipo === 'Ganho' ? 'tag-ganho' : 'tag-perda'}">${resultadoFormatado}</td>
+        <td><strong>R$ ${op.saldoAcumulado.toFixed(2)}</strong></td>
+        <td><button class="btn-del" onclick="removerOperacao(${op.id})">Excluir</button></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  atualizarGrafico(historico);
+}
+
+function atualizarGrafico(historico) {
+  const labels = ['Início', ...historico.map(h => h.data.split(' ')[0])];
+  const dados = [capitalInicial, ...historico.map(h => h.saldoAcumulado)];
+
+  if (chart) chart.destroy();
+
+  const canvas = document.getElementById('meuGrafico');
+  if (canvas && typeof Chart !== 'undefined') {
+    const ctx = canvas.getContext('2d');
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Evolução do Saldo (R$)',
+          data: dados,
+          borderColor: '#2563eb',
+          backgroundColor: 'rgba(37, 99, 235, 0.1)',
+          fill: true,
+          tension: 0.2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
+}
+
+const formOp = document.getElementById('formOperacao');
+if (formOp) {
+  formOp.addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const ativoInput = document.getElementById('ativo').value.trim();
+    const tipo = document.getElementById('tipo').value;
+    const valorEntrada = parseFloat(document.getElementById('valorEntrada').value) || null;
+    const valor = Math.abs(parseFloat(document.getElementById('valor').value));
+
+    const ativoFinal = ativoInput !== "" ? ativoInput.toUpperCase() : "-";
+
+    const agora = new Date();
+    const dataFormatada = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+    operacoes.push({
+      id: Date.now(),
+      data: dataFormatada,
+      ativo: ativoFinal,
+      tipo: tipo,
+      valorEntrada: valorEntrada,
+      valor: valor
+    });
+
+    document.getElementById('ativo').value = '';
+    document.getElementById('valorEntrada').value = '';
+    document.getElementById('valor').value = '';
+
+    render();
+    salvarNaNuvem();
+  });
+}
+
+function removerOperacao(id) {
+  operacoes = operacoes.filter(op => op.id !== id);
+  render();
+  salvarNaNuvem();
+}
+
+carregarDaNuvem();
 </script>
 </body>
 </html>
