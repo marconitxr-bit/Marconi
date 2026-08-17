@@ -1,0 +1,333 @@
+HTML
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diário de Operações Financeiras</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+    body { background-color: #f4f7f6; color: #333; padding: 20px; }
+    .container { max-width: 1000px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+    h1 { margin-bottom: 20px; font-size: 24px; color: #1e293b; text-align: center; }
+    
+    .sync-status { text-align: center; font-size: 13px; font-weight: bold; margin-bottom: 15px; padding: 8px; border-radius: 6px; background: #e2e8f0; color: #475569; }
+    .sync-status.ok { background: #dcfce7; color: #15803d; }
+    .sync-status.loading { background: #fef9c3; color: #a16207; }
+    .sync-status.error { background: #fee2e2; color: #b91c1c; }
+
+    .config-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 20px; background: #eff6ff; padding: 12px 18px; border-radius: 8px; border: 1px solid #bfdbfe; }
+    .config-bar label { font-size: 14px; font-weight: 700; color: #1e40af; }
+    .config-bar input { width: 160px; padding: 8px 12px; font-size: 16px; font-weight: bold; text-align: right; border: 2px solid #3b82f6; border-radius: 6px; color: #1e3a8a; }
+
+    .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px; }
+    .card { background: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; text-align: center; }
+    .card label { font-size: 13px; color: #64748b; font-weight: 600; text-transform: uppercase; }
+    .card .val { font-size: 20px; font-weight: bold; margin-top: 5px; color: #0f172a; }
+    
+    .chart-container { position: relative; height: 300px; margin-bottom: 25px; }
+    
+    form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; background: #f1f5f9; padding: 15px; border-radius: 8px; margin-bottom: 25px; align-items: end; }
+    .form-group { display: flex; flex-direction: column; }
+    .form-group label { font-size: 12px; margin-bottom: 5px; font-weight: 600; color: #475569; }
+    input, select, button { padding: 10px; font-size: 14px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; }
+    
+    .actions-bar { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+    
+    .btn-sync { background: #0284c7; color: #fff; border: none; font-weight: bold; padding: 10px 18px; border-radius: 6px; cursor: pointer; transition: 0.2s; }
+    .btn-sync:hover { background: #0369a1; }
+
+    button.btn-add { background: #2563eb; color: #fff; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    button.btn-add:hover { background: #1d4ed8; }
+    
+    .table-container { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+    th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e2e8f0; }
+    th { background-color: #f8fafc; color: #475569; font-weight: 600; }
+    .tag-ganho { color: #16a34a; font-weight: bold; }
+    .tag-perda { color: #dc2626; font-weight: bold; }
+    .btn-del { background: #fee2e2; color: #991b1b; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+    .btn-del:hover { background: #fca5a5; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Diário de Operações Financeiras</h1>
+
+  <div id="statusNuvem" class="sync-status">🔄 Conectando com a nuvem...</div>
+
+  <div class="config-bar">
+    <label for="inputCapital">Capital Inicial (R$):</label>
+    <input type="number" id="inputCapital" step="0.01" min="0" placeholder="0.00">
+  </div>
+
+  <div class="cards-grid">
+    <div class="card">
+      <label>Saldo Atual</label>
+      <div class="val" id="cardSaldo">R$ 0,00</div>
+    </div>
+    <div class="card">
+      <label>Lucro / Prejuízo Total</label>
+      <div class="val" id="cardPl">R$ 0,00</div>
+    </div>
+    <div class="card">
+      <label>Taxa de Acerto</label>
+      <div class="val" id="cardWinrate">0%</div>
+    </div>
+    <div class="card">
+      <label>Total de Operações</label>
+      <div class="val" id="cardTotal">0</div>
+    </div>
+  </div>
+
+  <div class="chart-container">
+    <canvas id="meuGrafico"></canvas>
+  </div>
+
+  <form id="formOperacao">
+    <div class="form-group">
+      <label>Ativo / Descrição (Opcional)</label>
+      <input type="text" id="ativo" placeholder="Ex: WIN, PETR4 ou deixe vazio">
+    </div>
+    <div class="form-group">
+      <label>Tipo</label>
+      <select id="tipo">
+        <option value="Ganho">Win</option>
+        <option value="Perda">Loss</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Valor de Entrada (R$)</label>
+      <input type="number" id="valorEntrada" step="0.01" placeholder="Ex: 500.00">
+    </div>
+    <div class="form-group">
+      <label>Resultado da Operação (R$)</label>
+      <input type="number" id="valor" step="0.01" placeholder="0.00" required>
+    </div>
+    <button type="submit" class="btn-add">Registrar</button>
+  </form>
+
+  <div class="actions-bar">
+    <button type="button" class="btn-sync" onclick="carregarDaNuvem()">🔄 Atualizar / Sincronizar Agora</button>
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Data e Hora</th>
+          <th>Ativo / Descrição</th>
+          <th>Tipo</th>
+          <th>Valor de Entrada (R$)</th>
+          <th>Resultado da Operação (R$)</th>
+          <th>Saldo Acumulado</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody id="tabelaCorpo"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// Cole a URL que você gerou no Google Apps Script entre as aspas abaixo:
+const SCRIPT_URL = "COLE_AQUI_A_SUA_URL_DO_GOOGLE_APPS_SCRIPT";
+
+let capitalInicial = 1000.00;
+let operacoes = [];
+let chart;
+
+function atualizarStatus(texto, classe) {
+  const el = document.getElementById('statusNuvem');
+  el.innerText = texto;
+  el.className = `sync-status ${classe}`;
+}
+
+async function carregarDaNuvem() {
+  if (!SCRIPT_URL || SCRIPT_URL.includes("COLE_AQUI")) {
+    atualizarStatus("⚠️ Insira a URL do Google Apps Script no arquivo index.html", "error");
+    return;
+  }
+
+  atualizarStatus("🔄 Buscando dados na nuvem...", "loading");
+
+  try {
+    const res = await fetch(SCRIPT_URL);
+    const data = await res.json();
+    
+    capitalInicial = parseFloat(data.capitalInicial) || 1000.00;
+    operacoes = data.operacoes || [];
+
+    document.getElementById('inputCapital').value = capitalInicial.toFixed(2);
+    render();
+    atualizarStatus("☁️ Sincronizado com o Google Sheets", "ok");
+  } catch (err) {
+    console.error(err);
+    atualizarStatus("❌ Erro ao conectar com a nuvem.", "error");
+  }
+}
+
+async function salvarNaNuvem() {
+  if (!SCRIPT_URL || SCRIPT_URL.includes("COLE_AQUI")) return;
+
+  atualizarStatus("⏳ Salvando na nuvem...", "loading");
+
+  try {
+    await fetch(SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        capitalInicial: capitalInicial,
+        operacoes: operacoes
+      })
+    });
+    
+    atualizarStatus("☁️ Alterações salvas na nuvem com sucesso!", "ok");
+  } catch (err) {
+    console.error(err);
+    atualizarStatus("❌ Erro ao salvar na nuvem.", "error");
+  }
+}
+
+document.getElementById('inputCapital').addEventListener('change', function(e) {
+  const novoValor = parseFloat(e.target.value);
+  if (!isNaN(novoValor) && novoValor >= 0) {
+    capitalInicial = novoValor;
+    salvarNaNuvem();
+    render();
+  }
+});
+
+function calcularMetricas() {
+  let saldo = capitalInicial;
+  let ganhos = 0;
+  let totalLucro = 0;
+
+  const historico = operacoes.map(op => {
+    if (op.tipo === 'Ganho') {
+      saldo += op.valor;
+      totalLucro += op.valor;
+      ganhos++;
+    } else {
+      saldo -= op.valor;
+      totalLucro -= op.valor;
+    }
+    return { ...op, saldoAcumulado: saldo };
+  });
+
+  const winrate = operacoes.length > 0 ? ((ganhos / operacoes.length) * 100).toFixed(1) : 0;
+
+  return { saldo, totalLucro, winrate, historico };
+}
+
+function render() {
+  const { saldo, totalLucro, winrate, historico } = calcularMetricas();
+
+  document.getElementById('cardSaldo').innerText = `R$ ${saldo.toFixed(2)}`;
+  document.getElementById('cardPl').innerText = `R$ ${totalLucro.toFixed(2)}`;
+  document.getElementById('cardPl').style.color = totalLucro >= 0 ? '#16a34a' : '#dc2626';
+  document.getElementById('cardWinrate').innerText = `${winrate}%`;
+  document.getElementById('cardTotal').innerText = operacoes.length;
+
+  const tbody = document.getElementById('tabelaCorpo');
+  tbody.innerHTML = '';
+
+  historico.slice().reverse().forEach(op => {
+    const tr = document.createElement('tr');
+    const entradaTxt = op.valorEntrada ? `R$ ${op.valorEntrada.toFixed(2)}` : '-';
+    const tipoTexto = op.tipo === 'Ganho' ? 'Win' : 'Loss';
+    
+    const resultadoFormatado = op.tipo === 'Ganho' 
+      ? `R$ ${op.valor.toFixed(2)}` 
+      : `-R$ ${op.valor.toFixed(2)}`;
+
+    tr.innerHTML = `
+      <td>${op.data}</td>
+      <td><strong>${op.ativo}</strong></td>
+      <td class="${op.tipo === 'Ganho' ? 'tag-ganho' : 'tag-perda'}">${tipoTexto}</td>
+      <td>${entradaTxt}</td>
+      <td class="${op.tipo === 'Ganho' ? 'tag-ganho' : 'tag-perda'}">${resultadoFormatado}</td>
+      <td><strong>R$ ${op.saldoAcumulado.toFixed(2)}</strong></td>
+      <td><button class="btn-del" onclick="removerOperacao(${op.id})">Excluir</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  atualizarGrafico(historico);
+}
+
+function atualizarGrafico(historico) {
+  const labels = ['Início', ...historico.map(h => h.data.split(' ')[0])];
+  const dados = [capitalInicial, ...historico.map(h => h.saldoAcumulado)];
+
+  if (chart) chart.destroy();
+
+  const canvas = document.getElementById('meuGrafico');
+  if (typeof Chart !== 'undefined') {
+    const ctx = canvas.getContext('2d');
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Evolução do Saldo (R$)',
+          data: dados,
+          borderColor: '#2563eb',
+          backgroundColor: 'rgba(37, 99, 235, 0.1)',
+          fill: true,
+          tension: 0.2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
+}
+
+document.getElementById('formOperacao').addEventListener('submit', function(e) {
+  e.preventDefault();
+  
+  const ativoInput = document.getElementById('ativo').value.trim();
+  const tipo = document.getElementById('tipo').value;
+  const valorEntrada = parseFloat(document.getElementById('valorEntrada').value) || null;
+  const valor = Math.abs(parseFloat(document.getElementById('valor').value));
+
+  const ativoFinal = ativoInput !== "" ? ativoInput.toUpperCase() : "-";
+
+  const agora = new Date();
+  const dataFormatada = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+  operacoes.push({
+    id: Date.now(),
+    data: dataFormatada,
+    ativo: ativoFinal,
+    tipo: tipo,
+    valorEntrada: valorEntrada,
+    valor: valor
+  });
+
+  document.getElementById('ativo').value = '';
+  document.getElementById('valorEntrada').value = '';
+  document.getElementById('valor').value = '';
+
+  render();
+  salvarNaNuvem();
+});
+
+function removerOperacao(id) {
+  operacoes = operacoes.filter(op => op.id !== id);
+  render();
+  salvarNaNuvem();
+}
+
+// Ao abrir a página, carrega os dados diretamente da planilha online
+carregarDaNuvem();
+</script>
+</body>
+</html>
